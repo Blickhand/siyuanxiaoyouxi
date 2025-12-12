@@ -6,8 +6,15 @@ type GameState = 'MENU' | 'TRANSITION' | 'PLAYING' | 'GAMEOVER';
 function App() {
   const [score, setScore] = useState(0);
   const [gameState, setGameState] = useState<GameState>('MENU');
+  const [bestScore, setBestScore] = useState(0);
 
+  // Initial load of best score
   useEffect(() => {
+    const saved = localStorage.getItem('siyuan-best-score');
+    if (saved) {
+      setBestScore(parseInt(saved, 10));
+    }
+
     const handleScore = (e: Event) => {
       const customEvent = e as CustomEvent;
       setScore(customEvent.detail);
@@ -25,6 +32,29 @@ function App() {
       window.removeEventListener('game-state-change', handleStateChange);
     }
   }, []);
+
+  // Update best score on Game Over
+  useEffect(() => {
+    if (gameState === 'GAMEOVER') {
+      if (score > bestScore) {
+        setBestScore(score);
+        localStorage.setItem('siyuan-best-score', score.toString());
+      }
+    }
+  }, [gameState, score, bestScore]);
+
+  // Auto-redirect to Menu after 30 seconds on Game Over screen
+  useEffect(() => {
+    let timer: number;
+    if (gameState === 'GAMEOVER') {
+      timer = window.setTimeout(() => {
+        window.dispatchEvent(new Event('game-return-menu'));
+      }, 30000);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [gameState]);
 
   const handleStart = () => {
     if (gameState === 'MENU') {
@@ -51,9 +81,13 @@ function App() {
       {gameState === 'MENU' && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/20 pointer-events-none">
           {/* Main Title with Bouncing Animation */}
-          <div className="text-center mb-12 animate-bounce">
+          <div className="text-center mb-8 animate-bounce px-4">
+            {/* 
+               Fix: Added 'inline-block' and 'pr-4' (padding-right) 
+               to prevent the italic 'H' from being clipped by the background container.
+            */}
             <h1 
-              className="text-5xl md:text-7xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 drop-shadow-2xl"
+              className="inline-block text-5xl md:text-7xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 via-yellow-500 to-yellow-600 drop-shadow-2xl pr-4"
               style={{ WebkitTextStroke: '2px #dc2626' }}
             >
               思源 RUSH
@@ -61,6 +95,13 @@ function App() {
             <h2 className="text-2xl md:text-3xl font-bold text-white mt-2 tracking-widest drop-shadow-md">
               冬日狂想
             </h2>
+            
+            {/* BEST SCORE - MENU */}
+            <div className="mt-4 bg-black/40 backdrop-blur-md px-6 py-2 rounded-lg border border-white/10 inline-block transform transition-transform hover:scale-105">
+               <p className="text-yellow-400 font-mono font-bold text-xl tracking-wider drop-shadow-sm">
+                 BEST SCORE: {bestScore}
+               </p>
+            </div>
           </div>
 
           {/* Tap to Start - Flashing */}
@@ -114,7 +155,14 @@ function App() {
           </h2>
           <div className="text-center mb-8">
             <p className="text-gray-300 text-lg uppercase tracking-widest">Final Score</p>
-            <p className="text-5xl font-mono font-bold text-yellow-400 drop-shadow-lg">{score}</p>
+            <p className="text-5xl font-mono font-bold text-yellow-400 drop-shadow-lg mb-2">{score}</p>
+            
+            {/* BEST SCORE - GAMEOVER */}
+            <div className="bg-white/10 px-4 py-1 rounded-full border border-white/20 inline-block">
+              <p className="text-yellow-200 font-mono text-lg">
+                BEST: {Math.max(score, bestScore)}
+              </p>
+            </div>
           </div>
           
           <button 

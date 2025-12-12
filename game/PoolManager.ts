@@ -98,7 +98,7 @@ export class PoolManager {
     for (let i = 0; i < this.poolSizeCoins; i++) {
       const mesh = new THREE.Mesh(coinGeo, coinMat);
       mesh.castShadow = true;
-      mesh.visible = false;
+      // Note: Do not set mesh.visible = false here, as the parent group controls visibility.
       
       const group = new THREE.Group();
       group.add(mesh);
@@ -258,6 +258,9 @@ export class PoolManager {
     entity.active = true;
     entity.group.visible = true;
     
+    // Ensure visual is visible (it shares the same mesh for all keys)
+    entity.visuals.jump.visible = true;
+
     const lane = Math.floor(Math.random() * LANE_COUNT) - 1; 
     entity.lane = lane;
     
@@ -294,7 +297,7 @@ export class PoolManager {
     for (const coin of this.coins) {
       if (coin.active) {
         coin.group.position.z += speed * dt;
-        coin.group.children[0].rotation.y += 3 * dt; // Spin visual
+        coin.visuals.jump.rotation.y += 3 * dt; // Spin visual
 
         if (coin.group.position.z > 10) {
           this.recycle(coin);

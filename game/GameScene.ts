@@ -92,6 +92,7 @@ export class GameScene {
     window.addEventListener('resize', this.onResize);
     window.addEventListener('game-start', this.startGame);
     window.addEventListener('game-restart', this.restartGame);
+    window.addEventListener('game-return-menu', this.returnToMenu);
 
     // 11. Enter Menu State
     this.enterMenu();
@@ -106,6 +107,7 @@ export class GameScene {
     this.player.startIdle(); // Start breathing animation
     // Initial camera position for orbit is handled in animate()
     
+    this.scene.fog = new THREE.Fog(COLOR_FOG, 15, 60);
     // Notify UI
     this.dispatchStateChange();
   }
@@ -149,6 +151,11 @@ export class GameScene {
     this.player.stopIdle();
     this.scene.fog = new THREE.Fog(COLOR_FOG, 15, 60);
     this.dispatchStateChange();
+  };
+
+  private returnToMenu = () => {
+    this.resetGameLogic();
+    this.enterMenu();
   };
 
   private resetGameLogic() {
@@ -392,6 +399,7 @@ export class GameScene {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('game-start', this.startGame);
     window.removeEventListener('game-restart', this.restartGame);
+    window.removeEventListener('game-return-menu', this.returnToMenu);
     this.inputManager.disable();
     this.renderer.dispose();
     if (this.container.contains(this.renderer.domElement)) {
