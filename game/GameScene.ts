@@ -3,6 +3,7 @@ import gsap from 'gsap';
 import { Player } from './Player';
 import { InputManager } from './InputManager';
 import { PoolManager } from './PoolManager';
+import { SceneryManager } from './SceneryManager';
 import { 
   COLOR_SKY, 
   COLOR_FOG, 
@@ -31,6 +32,7 @@ export class GameScene {
   private player: Player;
   private inputManager: InputManager;
   private poolManager: PoolManager;
+  private sceneryManager: SceneryManager;
   
   private animationId: number | null = null;
   private clock: THREE.Clock;
@@ -81,8 +83,9 @@ export class GameScene {
     this.player = new Player();
     this.scene.add(this.player.mesh);
 
-    // 8. Setup Object Pool
+    // 8. Setup Managers
     this.poolManager = new PoolManager(this.scene);
+    this.sceneryManager = new SceneryManager(this.scene);
 
     // 9. Setup Inputs
     this.inputManager = new InputManager((dir) => this.handleInput(dir));
@@ -163,7 +166,10 @@ export class GameScene {
     this.score = 0;
     this.spawnTimer = 0;
     this.addScore(0);
+    
+    // Reset Managers
     this.poolManager.reset();
+    this.sceneryManager.reset();
     
     // Reset Ground
     for (let i = 0; i < GROUND_SEGMENT_COUNT; i++) {
@@ -293,7 +299,10 @@ export class GameScene {
       }
     }
 
-    // 2. Spawn Obstacles
+    // 2. Move & Spawn Scenery
+    this.sceneryManager.update(dt, this.gameSpeed);
+
+    // 3. Spawn Obstacles
     const speedProgress = Math.min(1, (this.gameSpeed - GAME_SPEED_START) / (GAME_SPEED_MAX - GAME_SPEED_START));
     const currentSpawnInterval = OBSTACLE_INTERVAL - (speedProgress * (OBSTACLE_INTERVAL - OBSTACLE_INTERVAL_MIN));
 
@@ -309,7 +318,7 @@ export class GameScene {
       }
     }
 
-    // 3. Update Pool & Collisions
+    // 4. Update Pool & Collisions
     const result = this.poolManager.update(dt, this.gameSpeed, this.player.mesh.children[0]);
     
     if (result.scoreDelta > 0) {

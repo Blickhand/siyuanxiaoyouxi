@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { 
   LANE_WIDTH, 
-  COLOR_COIN,
   LANE_COUNT
 } from '../constants';
 
@@ -47,6 +46,7 @@ export class PoolManager {
   private poolSizeCoins = 50;
   
   private playerBox = new THREE.Box3();
+  private totalTime: number = 0; // For animation
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -87,18 +87,21 @@ export class PoolManager {
       });
     }
 
-    // 2. Initialize Coins
-    const coinGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    // 2. Initialize Coins (Upgraded Visuals)
+    // Using Octahedron for a crystal/diamond look
+    const coinGeo = new THREE.OctahedronGeometry(0.35, 0); 
     const coinMat = new THREE.MeshStandardMaterial({ 
-      color: COLOR_COIN, 
-      emissive: 0xcca300, 
-      emissiveIntensity: 0.5 
+      color: 0xFFD700,      // Gold
+      metalness: 0.8,       // Metallic look
+      roughness: 0.2,       // Shiny
+      emissive: 0x333300,   // Slight self-illumination
+      emissiveIntensity: 0.5,
+      flatShading: true     // Low-poly faceted look
     });
 
     for (let i = 0; i < this.poolSizeCoins; i++) {
       const mesh = new THREE.Mesh(coinGeo, coinMat);
       mesh.castShadow = true;
-      // Note: Do not set mesh.visible = false here, as the parent group controls visibility.
       
       const group = new THREE.Group();
       group.add(mesh);
@@ -264,12 +267,14 @@ export class PoolManager {
     const lane = Math.floor(Math.random() * LANE_COUNT) - 1; 
     entity.lane = lane;
     
+    // Initial position (Y=1.0 is the base height)
     entity.group.position.set(lane * LANE_WIDTH, 1.0, zPos);
     entity.group.rotation.set(0, 0, 0);
   }
 
   public update(dt: number, speed: number, playerMesh: THREE.Object3D): { gameOver: boolean, scoreDelta: number } {
     let result = { gameOver: false, scoreDelta: 0 };
+    this.totalTime += dt;
     
     for (const obs of this.obstacles) {
       if (obs.active) {
@@ -297,7 +302,13 @@ export class PoolManager {
     for (const coin of this.coins) {
       if (coin.active) {
         coin.group.position.z += speed * dt;
-        coin.visuals.jump.rotation.y += 3 * dt; // Spin visual
+        
+        // 1. Spin Animation (Y-axis)
+        coin.visuals.jump.rotation.y += 4 * dt; 
+        
+        // 2. Float/Bob Animation (Y-axis) - moves the mesh relative to group anchor
+        // Use ID to desync animations slightly
+        coin.visuals.jump.position.y = Math.sin(this.totalTime * 3 + coin.group.id) * 0.15;
 
         if (coin.group.position.z > 10) {
           this.recycle(coin);
