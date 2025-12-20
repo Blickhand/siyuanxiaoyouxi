@@ -1,8 +1,5 @@
 import * as THREE from 'three';
-import { 
-  LANE_WIDTH, 
-  LANE_COUNT
-} from '../constants';
+import { LANE_WIDTH, LANE_COUNT, JUMP_HEIGHT } from '../constants';
 
 type ObstacleType = 'JUMP' | 'ROLL' | 'FULL';
 
@@ -13,343 +10,309 @@ interface GameEntity {
   isCoin: boolean;
   type?: ObstacleType;
   collider: THREE.Box3;
-  visuals: {
-    jump: THREE.Object3D;
-    roll: THREE.Object3D;
-    full: THREE.Object3D;
-  };
+  visuals: { jump: THREE.Object3D; roll: THREE.Object3D; full: THREE.Object3D; };
 }
 
-// --- Shared Assets ---
-const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
-const matOrange = new THREE.MeshStandardMaterial({ color: 0xffa500 });
-const matWood = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.9 });
-const matRed = new THREE.MeshStandardMaterial({ color: 0xdc2626 });
-const matDark = new THREE.MeshStandardMaterial({ color: 0x1e293b }); // Dark Slate
-const matPaper = new THREE.MeshStandardMaterial({ color: 0xe2e8f0 }); // Paper color
-const matString = new THREE.MeshBasicMaterial({ color: 0x000000 });
-// Debug Material for Hitboxes (set visible: true to debug)
-const matHitBox = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, visible: false });
+const matGold = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8, roughness: 0.2 });
+const matRed = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 });
+const matBlack = new THREE.MeshStandardMaterial({ color: 0x111111 });
 
-// Geometry Recycling
-const geoSphereLarge = new THREE.SphereGeometry(0.6, 16, 16);
-const geoSphereSmall = new THREE.SphereGeometry(0.4, 16, 16);
-const geoCone = new THREE.ConeGeometry(0.1, 0.3, 8);
-const geoBoxDesk = new THREE.BoxGeometry(1.6, 1.0, 1.0);
-const geoLantern = new THREE.BoxGeometry(0.4, 0.5, 0.4);
+// OPTIMIZED: Glow material that preserves shape and shading
+const matCoinGlow = new THREE.MeshStandardMaterial({ 
+  color: 0xb45309,        // Deep gold base
+  emissive: 0xffd700,     // Bright yellow-gold emissive
+  emissiveIntensity: 2.8, // Balanced intensity: bright but not "washed out"
+  toneMapped: false,      // Allow HDR brightness
+  metalness: 1.0,         // Pure metal
+  roughness: 0.15         // Slight gloss to catch directional lights
+});
 
 export class PoolManager {
   private scene: THREE.Scene;
   private obstacles: GameEntity[] = [];
   private coins: GameEntity[] = []; 
-  private poolSizeObstacles = 20;
-  private poolSizeCoins = 50;
-  
+  private totalTime: number = 0;
   private playerBox = new THREE.Box3();
-  private totalTime: number = 0; // For animation
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.initPool();
   }
 
+  private createAncientCoinGeometry(): THREE.BufferGeometry {
+    const shape = new THREE.Shape();
+    shape.absarc(0, 0, 0.4, 0, Math.PI * 2, false);
+    const hole = new THREE.Path();
+    const size = 0.15;
+    hole.moveTo(-size, -size);
+    hole.lineTo(size, -size);
+    hole.lineTo(size, size);
+    hole.lineTo(-size, size);
+    hole.lineTo(-size, -size);
+    shape.holes.push(hole);
+
+    return new THREE.ExtrudeGeometry(shape, {
+      depth: 0.1,
+      bevelEnabled: true,
+      bevelThickness: 0.02,
+      bevelSize: 0.02,
+      bevelSegments: 2
+    });
+  }
+
   private initPool() {
-    // 1. Initialize Obstacles
-    for (let i = 0; i < this.poolSizeObstacles; i++) {
+    for (let i = 0; i < 20; i++) {
       const group = new THREE.Group();
       group.visible = false;
       this.scene.add(group);
 
-      const jumpModel = this.createSnowman();
-      const rollModel = this.createLanterns();
-      const fullModel = this.createDeskPile();
+      const jumpModel = this.createHorseStatue();
+      const rollModel = this.createLanternLine();
+      const fullModel = this.createFirecrackerBundle();
 
-      // Ensure they are initially hidden
-      jumpModel.visible = false;
-      rollModel.visible = false;
-      fullModel.visible = false;
-
-      group.add(jumpModel);
-      group.add(rollModel);
-      group.add(fullModel);
-
+      group.add(jumpModel, rollModel, fullModel);
       this.obstacles.push({
-        group,
-        active: false,
-        lane: 0,
-        isCoin: false,
+        group, active: false, lane: 0, isCoin: false,
         collider: new THREE.Box3(),
-        visuals: {
-          jump: jumpModel,
-          roll: rollModel,
-          full: fullModel
-        }
+        visuals: { jump: jumpModel, roll: rollModel, full: fullModel }
       });
     }
 
-    // 2. Initialize Coins (Upgraded Visuals)
-    // Using Octahedron for a crystal/diamond look
-    const coinGeo = new THREE.OctahedronGeometry(0.35, 0); 
-    const coinMat = new THREE.MeshStandardMaterial({ 
-      color: 0xFFD700,      // Gold
-      metalness: 0.8,       // Metallic look
-      roughness: 0.2,       // Shiny
-      emissive: 0x333300,   // Slight self-illumination
-      emissiveIntensity: 0.5,
-      flatShading: true     // Low-poly faceted look
-    });
-
-    for (let i = 0; i < this.poolSizeCoins; i++) {
-      const mesh = new THREE.Mesh(coinGeo, coinMat);
-      mesh.castShadow = true;
-      
+    const coinGeo = this.createAncientCoinGeometry();
+    for (let i = 0; i < 80; i++) { // Increased pool for patterns
+      const mesh = new THREE.Mesh(coinGeo, matCoinGlow);
+      mesh.rotation.x = Math.PI / 2;
       const group = new THREE.Group();
       group.add(mesh);
-      // Add a slightly larger hitbox for coins to make collecting easier
-      const hitBox = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.0), matHitBox);
-      hitBox.name = 'HITBOX';
-      group.add(hitBox);
-
+      
+      const hb = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshBasicMaterial({visible: false}));
+      hb.name = 'HITBOX';
+      group.add(hb);
       group.visible = false;
       this.scene.add(group);
-
-      this.coins.push({
-        group,
-        active: false,
-        lane: 0,
-        isCoin: true,
-        collider: new THREE.Box3(),
-        visuals: { jump: mesh, roll: mesh, full: mesh }
-      });
+      this.coins.push({ group, active: false, lane: 0, isCoin: true, collider: new THREE.Box3(), visuals: { jump: mesh, roll: mesh, full: mesh } });
     }
   }
 
-  // --- Model Builders ---
-
-  private createSnowman(): THREE.Group {
+  private createHorseStatue(): THREE.Group {
     const root = new THREE.Group();
-    
-    // Made Snowman Smaller:
-    // Bottom Sphere scaled to 0.7 (r=0.42)
-    const bottom = new THREE.Mesh(geoSphereLarge, matWhite);
-    bottom.scale.setScalar(0.7);
-    bottom.position.y = 0.4;
-    bottom.castShadow = true;
-    root.add(bottom);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 1.2), matGold);
+    base.position.y = 0.1;
+    root.add(base);
 
-    // Head Sphere scaled to 0.7 (r=0.28)
-    const head = new THREE.Mesh(geoSphereSmall, matWhite);
-    head.scale.setScalar(0.7);
-    head.position.y = 0.95; // Positioned lower
-    head.castShadow = true;
+    const legGeo = new THREE.BoxGeometry(0.1, 0.5, 0.1);
+    const positions = [[0.2, 0.2], [0.2, -0.2], [-0.2, 0.2], [-0.2, -0.2]];
+    positions.forEach(pos => {
+      const leg = new THREE.Mesh(legGeo, matGold);
+      leg.position.set(pos[0], 0.4, pos[1]);
+      root.add(leg);
+    });
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.9), matGold);
+    body.position.y = 0.9;
+    root.add(body);
+
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.3), matGold);
+    neck.position.set(0, 1.3, 0.3);
+    neck.rotation.x = -0.3;
+    root.add(neck);
+
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.3, 0.5), matGold);
+    head.position.set(0, 1.5, 0.5);
     root.add(head);
 
-    // Nose
-    const nose = new THREE.Mesh(geoCone, matOrange);
-    nose.scale.setScalar(0.6);
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 0.95, 0.28);
-    root.add(nose);
+    const earGeo = new THREE.ConeGeometry(0.08, 0.15, 4);
+    const earL = new THREE.Mesh(earGeo, matGold);
+    earL.position.set(0.1, 1.65, 0.4);
+    root.add(earL);
+    const earR = new THREE.Mesh(earGeo, matGold);
+    earR.position.set(-0.1, 1.65, 0.4);
+    root.add(earR);
 
-    // HITBOX: Snowman (Jumpable)
-    // Visual Top is approx 1.25m (0.95 + 0.28)
-    // Hitbox Height: 1.2m. Top Y: 1.2.
-    // Player Jump: 1.7m. Easily clears.
-    const hitBox = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.8), matHitBox);
-    hitBox.position.y = 0.6; 
-    hitBox.name = 'HITBOX';
-    root.add(hitBox);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 0.1), matGold);
+    tail.position.set(0, 0.8, -0.5);
+    tail.rotation.x = -0.5;
+    root.add(tail);
 
+    const hb = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), new THREE.MeshBasicMaterial({visible: false}));
+    hb.name = 'HITBOX'; hb.position.y = 0.55;
+    root.add(hb);
     return root;
   }
 
-  private createLanterns(): THREE.Group {
+  private createLanternLine(): THREE.Group {
     const root = new THREE.Group();
-    
-    // Visuals
-    const stringGeo = new THREE.BoxGeometry(LANE_WIDTH + 0.5, 0.05, 0.05);
-    const string = new THREE.Mesh(stringGeo, matString);
-    string.position.y = 1.8;
+    const string = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH + 0.4, 0.05, 0.05), matBlack);
+    string.position.y = 2.0;
     root.add(string);
 
-    const l1 = new THREE.Mesh(geoLantern, matRed);
-    l1.position.set(-0.5, 1.5, 0);
-    l1.castShadow = true;
-    root.add(l1);
+    const createLantern = (x: number) => {
+      const lGroup = new THREE.Group();
+      lGroup.position.set(x, 1.6, 0);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8), matRed);
+      lGroup.add(body);
+      const capGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.1, 8);
+      const capTop = new THREE.Mesh(capGeo, matGold);
+      capTop.position.y = 0.3;
+      lGroup.add(capTop);
+      const capBot = new THREE.Mesh(capGeo, matGold);
+      capBot.position.y = -0.3;
+      lGroup.add(capBot);
+      const tassel = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05), matRed);
+      tassel.position.y = -0.6;
+      lGroup.add(tassel);
+      return lGroup;
+    };
 
-    const l2 = new THREE.Mesh(geoLantern, matRed);
-    l2.position.set(0.5, 1.5, 0);
-    l2.castShadow = true;
-    root.add(l2);
+    root.add(createLantern(-0.6));
+    root.add(createLantern(0.6));
 
-    // HITBOX: Lanterns (Rollable)
-    // Box Bottom: 1.2. Top: 3.2.
-    const hitBox = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.0, 0.5), matHitBox);
-    hitBox.position.y = 2.2; 
-    hitBox.name = 'HITBOX';
-    root.add(hitBox);
-
+    const hb = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.5, 0.5), new THREE.MeshBasicMaterial({visible: false}));
+    hb.name = 'HITBOX'; hb.position.y = 2.2;
+    root.add(hb);
     return root;
   }
 
-  private createDeskPile(): THREE.Group {
+  private createFirecrackerBundle(): THREE.Group {
     const root = new THREE.Group();
-    
-    // 1. Main Desk (Height 1.0)
-    const desk = new THREE.Mesh(geoBoxDesk, matWood);
-    desk.position.y = 0.5;
-    desk.castShadow = true;
-    root.add(desk);
-
-    // 2. Tall Stack of Books (The visual blocker)
-    // Height 0.8, placed on top of desk (y=1.0) -> Top reaches 1.8m
-    const stackGeo = new THREE.BoxGeometry(0.5, 0.8, 0.5);
-    const stack = new THREE.Mesh(stackGeo, matPaper);
-    stack.position.set(-0.3, 1.4, 0); // Left side
-    stack.castShadow = true;
-    root.add(stack);
-
-    // 3. Small Book (Detail)
-    const book = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.4), matRed);
-    book.position.set(0.3, 1.075, 0.1);
-    root.add(book);
-
-    // HITBOX: Full Block (Must Change Lane)
-    // Make it tall
-    const hitBox = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.0, 1.0), matHitBox);
-    hitBox.position.y = 2.5; 
-    hitBox.name = 'HITBOX';
-    root.add(hitBox);
-
+    const createFirecracker = (x: number, z: number, h: number) => {
+      const f = new THREE.Group();
+      f.position.set(x, h/2, z);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, h, 8), matRed);
+      f.add(body);
+      const ringGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.05, 8);
+      const r1 = new THREE.Mesh(ringGeo, matGold); r1.position.y = h/2 - 0.1; f.add(r1);
+      const r2 = new THREE.Mesh(ringGeo, matGold); r2.position.y = -h/2 + 0.1; f.add(r2);
+      return f;
+    };
+    root.add(createFirecracker(0, 0, 1.8));
+    root.add(createFirecracker(0.3, 0, 1.4));
+    root.add(createFirecracker(-0.3, 0, 1.4));
+    root.add(createFirecracker(0.15, 0.25, 1.4));
+    root.add(createFirecracker(-0.15, 0.25, 1.4));
+    root.add(createFirecracker(0.15, -0.25, 1.4));
+    root.add(createFirecracker(-0.15, -0.25, 1.4));
+    const fuse = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.3, 0.02), matBlack);
+    fuse.position.y = 2.0;
+    root.add(fuse);
+    const hb = new THREE.Mesh(new THREE.BoxGeometry(1.6, 5, 1), new THREE.MeshBasicMaterial({visible: false}));
+    hb.name = 'HITBOX'; hb.position.y = 2.5;
+    root.add(hb);
     return root;
   }
 
-  // -----------------------
+  private spawnCoinAt(lane: number, y: number, z: number) {
+    const e = this.coins.find(c => !c.active);
+    if (!e) return;
+    e.active = true;
+    e.group.visible = true;
+    e.lane = lane;
+    e.group.position.set(lane * LANE_WIDTH, y, z);
+  }
 
-  public spawnObstacle(zPos: number) {
-    const entity = this.obstacles.find(o => !o.active);
-    if (!entity) return;
-
-    entity.active = true;
-    entity.group.visible = true;
+  public spawnObstacle(z: number) {
+    const e = this.obstacles.find(o => !o.active);
+    if (!e) return;
+    e.active = true; e.group.visible = true;
+    e.visuals.jump.visible = e.visuals.roll.visible = e.visuals.full.visible = false;
+    e.lane = Math.floor(Math.random() * 3) - 1;
+    e.group.position.set(e.lane * LANE_WIDTH, 0, z);
     
-    entity.visuals.jump.visible = false;
-    entity.visuals.roll.visible = false;
-    entity.visuals.full.visible = false;
-
-    const lane = Math.floor(Math.random() * LANE_COUNT) - 1; 
-    entity.lane = lane;
-    entity.group.position.set(lane * LANE_WIDTH, 0, zPos);
-
-    const typeRand = Math.random();
-    if (typeRand < 0.33) {
-      entity.type = 'JUMP';
-      entity.visuals.jump.visible = true;
-    } else if (typeRand < 0.66) {
-      entity.type = 'ROLL';
-      entity.visuals.roll.visible = true;
-    } else {
-      entity.type = 'FULL';
-      entity.visuals.full.visible = true;
+    const r = Math.random();
+    if (r < 0.33) { 
+      e.type = 'JUMP'; 
+      e.visuals.jump.visible = true; 
+      // Jump Arc: Guide player over the horse
+      this.spawnCoinAt(e.lane, 1.0, z + 4);
+      this.spawnCoinAt(e.lane, JUMP_HEIGHT + 0.3, z);
+      this.spawnCoinAt(e.lane, 1.0, z - 4);
+    }
+    else if (r < 0.66) { 
+      e.type = 'ROLL'; 
+      e.visuals.roll.visible = true; 
+      // Slide Line: Guide player under the lanterns
+      this.spawnCoinAt(e.lane, 0.5, z + 4);
+      this.spawnCoinAt(e.lane, 0.5, z);
+      this.spawnCoinAt(e.lane, 0.5, z - 4);
+    }
+    else { 
+      e.type = 'FULL'; 
+      e.visuals.full.visible = true; 
+      // Lane Switch Curve: Guide player to safe lane
+      const safeLane = e.lane === 0 ? (Math.random() > 0.5 ? 1 : -1) : 0;
+      this.spawnCoinAt(e.lane, 1.0, z + 8);
+      this.spawnCoinAt((e.lane + safeLane) / 2, 1.0, z + 4);
+      this.spawnCoinAt(safeLane, 1.0, z);
     }
   }
 
-  public spawnCoin(zPos: number) {
-    const entity = this.coins.find(c => !c.active);
-    if (!entity) return;
-
-    entity.active = true;
-    entity.group.visible = true;
-    
-    // Ensure visual is visible (it shares the same mesh for all keys)
-    entity.visuals.jump.visible = true;
-
-    const lane = Math.floor(Math.random() * LANE_COUNT) - 1; 
-    entity.lane = lane;
-    
-    // Initial position (Y=1.0 is the base height)
-    entity.group.position.set(lane * LANE_WIDTH, 1.0, zPos);
-    entity.group.rotation.set(0, 0, 0);
+  public spawnCoin(z: number) {
+    // Standard random coin for empty tracks
+    this.spawnCoinAt(Math.floor(Math.random() * 3) - 1, 1, z);
   }
 
-  public update(dt: number, speed: number, playerMesh: THREE.Object3D): { gameOver: boolean, scoreDelta: number } {
-    let result = { gameOver: false, scoreDelta: 0 };
+  public update(dt: number, speed: number, player: THREE.Object3D) {
+    let res = { gameOver: false, scoreDelta: 0 };
     this.totalTime += dt;
     
-    for (const obs of this.obstacles) {
-      if (obs.active) {
-        obs.group.position.z += speed * dt;
-        
-        if (obs.group.position.z > 10) {
-          this.recycle(obs);
-          result.scoreDelta += 10;
-        } else {
-          if (obs.group.position.z > -2 && obs.group.position.z < 2) {
-             // Pass the active visual group to check collision
-             let activeVisual: THREE.Object3D | null = null;
-             if (obs.type === 'JUMP') activeVisual = obs.visuals.jump;
-             else if (obs.type === 'ROLL') activeVisual = obs.visuals.roll;
-             else if (obs.type === 'FULL') activeVisual = obs.visuals.full;
-
-             if (activeVisual && this.checkCollision(playerMesh, activeVisual)) {
-                result.gameOver = true;
-             }
-          }
+    // Update Obstacles
+    for (const o of this.obstacles) {
+      if (o.active) {
+        o.group.position.z += speed * dt;
+        if (o.group.position.z > 10) { 
+          this.recycle(o); 
+          res.scoreDelta += 10; 
+        }
+        else if (o.group.position.z > -1.5 && o.group.position.z < 1.5) {
+          const v = o.type === 'JUMP' ? o.visuals.jump : (o.type === 'ROLL' ? o.visuals.roll : o.visuals.full);
+          if (this.checkCollision(player, v)) res.gameOver = true;
         }
       }
     }
 
-    for (const coin of this.coins) {
-      if (coin.active) {
-        coin.group.position.z += speed * dt;
+    // Update Coins
+    for (const c of this.coins) {
+      if (c.active) {
+        c.group.position.z += speed * dt;
         
-        // 1. Spin Animation (Y-axis)
-        coin.visuals.jump.rotation.y += 4 * dt; 
+        // Face is on XY for ExtrudeGeometry, so we rotate around Z for spin
+        c.visuals.jump.rotation.z += 5 * dt; 
+        c.visuals.jump.rotation.x = 0.5 + Math.sin(this.totalTime * 2) * 0.2; // Wobble
+        c.visuals.jump.position.y = Math.sin(this.totalTime * 4) * 0.2;
         
-        // 2. Float/Bob Animation (Y-axis) - moves the mesh relative to group anchor
-        // Use ID to desync animations slightly
-        coin.visuals.jump.position.y = Math.sin(this.totalTime * 3 + coin.group.id) * 0.15;
+        // Pulsing scale for "alive" glow
+        const pulse = 1.0 + Math.sin(this.totalTime * 8) * 0.05;
+        c.visuals.jump.scale.set(pulse, pulse, pulse);
 
-        if (coin.group.position.z > 10) {
-          this.recycle(coin);
-        } else {
-          if (coin.group.position.z > -2 && coin.group.position.z < 2) {
-            // Check collision against the coin group (which contains hitbox)
-            if (this.checkCollision(playerMesh, coin.group)) {
-              this.recycle(coin);
-              result.scoreDelta += 50;
-            }
+        if (c.group.position.z > 10) {
+          this.recycle(c);
+        }
+        else if (c.group.position.z > -1.5 && c.group.position.z < 1.5) {
+          if (this.checkCollision(player, c.group)) { 
+            this.recycle(c); 
+            res.scoreDelta += 50; 
           }
         }
       }
     }
-
-    return result;
+    return res;
   }
 
-  private checkCollision(player: THREE.Object3D, entityGroup: THREE.Object3D): boolean {
-    this.playerBox.setFromObject(player);
-    this.playerBox.expandByScalar(-0.15); 
-
-    const hitBoxObj = entityGroup.getObjectByName('HITBOX');
-    const target = hitBoxObj || entityGroup;
-
-    entityGroup.parent?.updateMatrixWorld(true);
-    target.collider = target.collider || new THREE.Box3();
-    
-    const obstacleBox = new THREE.Box3().setFromObject(target);
-
-    return this.playerBox.intersectsBox(obstacleBox);
+  private checkCollision(p: THREE.Object3D, e: THREE.Object3D) {
+    this.playerBox.setFromObject(p).expandByScalar(-0.1);
+    const target = e.getObjectByName('HITBOX') || e;
+    const obox = new THREE.Box3().setFromObject(target);
+    return this.playerBox.intersectsBox(obox);
   }
 
-  public reset() {
-    this.obstacles.forEach(o => this.recycle(o));
-    this.coins.forEach(c => this.recycle(c));
+  private recycle(e: GameEntity) { 
+    e.active = false; 
+    e.group.visible = false; 
+    e.group.position.z = 100; 
   }
 
-  private recycle(entity: GameEntity) {
-    entity.active = false;
-    entity.group.visible = false;
-    entity.group.position.set(0, -100, 0);
+  public reset() { 
+    this.obstacles.forEach(o => this.recycle(o)); 
+    this.coins.forEach(c => this.recycle(c)); 
   }
 }

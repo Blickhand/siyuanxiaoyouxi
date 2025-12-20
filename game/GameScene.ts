@@ -4,6 +4,7 @@ import { Player } from './Player';
 import { InputManager } from './InputManager';
 import { PoolManager } from './PoolManager';
 import { SceneryManager } from './SceneryManager';
+import { AudioManager } from './AudioManager';
 import { 
   COLOR_SKY, 
   COLOR_FOG, 
@@ -33,6 +34,7 @@ export class GameScene {
   private inputManager: InputManager;
   private poolManager: PoolManager;
   private sceneryManager: SceneryManager;
+  private audioManager: AudioManager;
   
   private animationId: number | null = null;
   private clock: THREE.Clock;
@@ -86,6 +88,7 @@ export class GameScene {
     // 8. Setup Managers
     this.poolManager = new PoolManager(this.scene);
     this.sceneryManager = new SceneryManager(this.scene);
+    this.audioManager = new AudioManager();
 
     // 9. Setup Inputs
     this.inputManager = new InputManager((dir) => this.handleInput(dir));
@@ -106,26 +109,22 @@ export class GameScene {
 
   private enterMenu() {
     this.gameState = 'MENU';
-    this.gameSpeed = 0; // Stop world movement
-    this.player.startIdle(); // Start breathing animation
-    // Initial camera position for orbit is handled in animate()
-    
+    this.gameSpeed = 0;
+    this.player.startIdle();
     this.scene.fog = new THREE.Fog(COLOR_FOG, 15, 60);
-    // Notify UI
+    this.audioManager.stopBGM();
     this.dispatchStateChange();
   }
 
   private startGame = () => {
     if (this.gameState !== 'MENU' && this.gameState !== 'GAMEOVER') return;
     
+    this.audioManager.resume();
     this.gameState = 'TRANSITION';
     this.dispatchStateChange();
 
-    // 1. Stop Player Idle
     this.player.stopIdle();
 
-    // 2. Animate Camera from Orbit to Runner View
-    // The current orbit position is dynamic, so GSAP will pick up from current values automatically.
     gsap.to(this.camera.position, {
       x: 0,
       y: CAMERA_OFFSET_Y,
@@ -133,26 +132,27 @@ export class GameScene {
       duration: 1.5,
       ease: "power2.inOut",
       onUpdate: () => {
-        this.camera.lookAt(0, 1, -5); // Keep looking ahead
+        this.camera.lookAt(0, 1, -5);
       },
       onComplete: () => {
         this.gameState = 'PLAYING';
         this.gameSpeed = GAME_SPEED_START;
+        this.audioManager.startBGM();
         this.dispatchStateChange();
       }
     });
 
-    // 3. Reset Game Logic
     this.resetGameLogic();
   };
 
   private restartGame = () => {
-    // Quick restart logic
+    this.audioManager.resume();
     this.gameState = 'PLAYING';
     this.gameSpeed = GAME_SPEED_START;
     this.resetGameLogic();
     this.player.stopIdle();
     this.scene.fog = new THREE.Fog(COLOR_FOG, 15, 60);
+    this.audioManager.startBGM();
     this.dispatchStateChange();
   };
 
@@ -162,24 +162,19 @@ export class GameScene {
   };
 
   private resetGameLogic() {
-    this.isGameOver = false; // Internal flag for input check
+    this.isGameOver = false;
     this.score = 0;
     this.spawnTimer = 0;
     this.addScore(0);
-    
-    // Reset Managers
     this.poolManager.reset();
     this.sceneryManager.reset();
-    
-    // Reset Ground
     for (let i = 0; i < GROUND_SEGMENT_COUNT; i++) {
        this.groundSegments[i].position.z = -i * GROUND_SEGMENT_LENGTH;
     }
-    // Reset Player
     this.player.mesh.position.set(0,0,0);
   }
 
-  private isGameOver = false; // Kept for compatibility with handleInput checks
+  private isGameOver = false;
 
   private setupLights() {
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
@@ -209,24 +204,20 @@ export class GameScene {
 
     for (let i = 0; i < GROUND_SEGMENT_COUNT; i++) {
       const segment = new THREE.Group();
-      
       const track = new THREE.Mesh(trackGeo, trackMat);
       track.rotation.x = -Math.PI / 2;
       track.receiveShadow = true;
       segment.add(track);
-
       const leftSnow = new THREE.Mesh(snowGeo, snowMat);
       leftSnow.rotation.x = -Math.PI / 2;
       leftSnow.position.x = -(LANE_WIDTH * 1.5 + 15);
       leftSnow.receiveShadow = true;
       segment.add(leftSnow);
-
       const rightSnow = new THREE.Mesh(snowGeo, snowMat);
       rightSnow.rotation.x = -Math.PI / 2;
       rightSnow.position.x = (LANE_WIDTH * 1.5 + 15);
       rightSnow.receiveShadow = true;
       segment.add(rightSnow);
-
       segment.position.z = -i * GROUND_SEGMENT_LENGTH;
       this.groundSegments.push(segment);
       this.scene.add(segment);
@@ -257,14 +248,11 @@ export class GameScene {
   private updateSnow(dt: number) {
     if (!this.snowSystem || !this.snowVelocities) return;
     const positions = this.snowSystem.geometry.attributes.position.array as Float32Array;
-    
-    // During MENU/TRANSITION, wind speed is low. During PLAYING, it matches game speed.
     const windSpeed = (this.gameState === 'PLAYING') ? this.gameSpeed : 2.0;
 
     for (let i = 0; i < this.snowVelocities.length; i++) {
       positions[i * 3 + 1] -= this.snowVelocities[i] * dt;
       positions[i * 3 + 2] += windSpeed * 0.5 * dt;
-
       if (positions[i * 3 + 1] < 0 || positions[i * 3 + 2] > 10) {
         positions[i * 3] = (Math.random() - 0.5) * 60;
         positions[i * 3 + 1] = 30 + Math.random() * 10;
@@ -278,18 +266,17 @@ export class GameScene {
     if (this.gameState !== 'PLAYING') return;
     if (this.isGameOver) return;
 
+    this.audioManager.resume();
     switch(direction) {
-      case 'left': this.player.moveLeft(); break;
-      case 'right': this.player.moveRight(); break;
-      case 'up': this.player.jump(); break;
-      case 'down': this.player.roll(); break;
+      case 'left': this.player.moveLeft(); this.audioManager.playLane(); break;
+      case 'right': this.player.moveRight(); this.audioManager.playLane(); break;
+      case 'up': if (!this.player.isJumping) { this.player.jump(); this.audioManager.playJump(); } break;
+      case 'down': if (!this.player.isRolling) { this.player.roll(); this.audioManager.playRoll(); } break;
     }
   }
 
   private updateWorld(dt: number) {
     const moveDistance = this.gameSpeed * dt;
-
-    // 1. Move Ground Segments
     for (const segment of this.groundSegments) {
       segment.position.z += moveDistance;
       if (segment.position.z > GROUND_SEGMENT_LENGTH) {
@@ -298,36 +285,22 @@ export class GameScene {
         segment.position.z = minZ - GROUND_SEGMENT_LENGTH;
       }
     }
-
-    // 2. Move & Spawn Scenery
     this.sceneryManager.update(dt, this.gameSpeed);
-
-    // 3. Spawn Obstacles
     const speedProgress = Math.min(1, (this.gameSpeed - GAME_SPEED_START) / (GAME_SPEED_MAX - GAME_SPEED_START));
     const currentSpawnInterval = OBSTACLE_INTERVAL - (speedProgress * (OBSTACLE_INTERVAL - OBSTACLE_INTERVAL_MIN));
-
     this.spawnTimer += moveDistance;
     if (this.spawnTimer > currentSpawnInterval) {
       this.spawnTimer = 0;
-      const spawnZ = -SPAWN_DISTANCE;
-      
-      if (Math.random() > 0.3) {
-         this.poolManager.spawnObstacle(spawnZ);
-      } else {
-         this.poolManager.spawnCoin(spawnZ);
-      }
+      this.poolManager.spawnObstacle(-SPAWN_DISTANCE);
     }
-
-    // 4. Update Pool & Collisions
+    const oldScore = this.score;
     const result = this.poolManager.update(dt, this.gameSpeed, this.player.mesh.children[0]);
-    
     if (result.scoreDelta > 0) {
       this.addScore(result.scoreDelta);
+      // If score increase is large (multiple of 50), it's likely a coin
+      if (result.scoreDelta >= 50) this.audioManager.playCoin();
     }
-    
-    if (result.gameOver) {
-      this.setGameOver();
-    }
+    if (result.gameOver) this.setGameOver();
   }
 
   private addScore(amount: number) {
@@ -339,6 +312,8 @@ export class GameScene {
     this.isGameOver = true;
     this.gameState = 'GAMEOVER';
     this.scene.fog = new THREE.Fog(0x880000, 2, 10);
+    this.audioManager.playHit();
+    this.audioManager.stopBGM();
     this.dispatchStateChange();
   }
 
@@ -349,7 +324,6 @@ export class GameScene {
   private updateCameraPlaying() {
     const playerPos = this.player.getPosition();
     const targetY = playerPos.y + CAMERA_OFFSET_Y;
-    
     this.camera.position.x = 0;
     this.camera.position.z = CAMERA_OFFSET_Z; 
     this.camera.position.y += (targetY - this.camera.position.y) * 0.1;
@@ -361,35 +335,22 @@ export class GameScene {
     const dt = this.clock.getDelta();
 
     if (this.gameState === 'MENU') {
-      // Orbit Camera Logic
       const time = Date.now() * 0.0005;
       const radius = 5;
       this.camera.position.x = Math.sin(time) * radius;
-      this.camera.position.z = Math.cos(time) * radius + 1; // Slight offset so we don't clip too close
+      this.camera.position.z = Math.cos(time) * radius + 1;
       this.camera.position.y = 2.5;
-      this.camera.lookAt(0, 1, 0); // Look at player center
-
-      this.updateSnow(dt); // Keep snow falling
-    
-    } else if (this.gameState === 'TRANSITION') {
-      // Camera is handled by GSAP
+      this.camera.lookAt(0, 1, 0);
       this.updateSnow(dt);
-
+    } else if (this.gameState === 'TRANSITION') {
+      this.updateSnow(dt);
     } else if (this.gameState === 'PLAYING') {
-      // Gameplay Logic
       this.player.update(dt);
       this.updateWorld(dt);
       this.updateSnow(dt);
       this.updateCameraPlaying();
-      
-      if (this.gameSpeed < GAME_SPEED_MAX) {
-        this.gameSpeed += 0.3 * dt; 
-      }
-    } else if (this.gameState === 'GAMEOVER') {
-       // Static camera or slight movement?
-       // Just render scene
+      if (this.gameSpeed < GAME_SPEED_MAX) this.gameSpeed += 0.3 * dt; 
     }
-
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -397,7 +358,6 @@ export class GameScene {
     if (!this.container) return;
     const width = this.container.clientWidth;
     const height = this.container.clientHeight;
-    
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
@@ -410,6 +370,7 @@ export class GameScene {
     window.removeEventListener('game-restart', this.restartGame);
     window.removeEventListener('game-return-menu', this.returnToMenu);
     this.inputManager.disable();
+    this.audioManager.stopBGM();
     this.renderer.dispose();
     if (this.container.contains(this.renderer.domElement)) {
       this.container.removeChild(this.renderer.domElement);
