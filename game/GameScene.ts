@@ -39,16 +39,17 @@ export class GameScene {
   private animationId: number | null = null;
   private clock: THREE.Clock;
   
-  // Game State
+  // 游戏状态
   private gameState: GameState = 'MENU';
   private gameSpeed: number = GAME_SPEED_START;
   private score: number = 0;
   private spawnTimer: number = 0;
+  private isGameOver: boolean = false;
 
-  // Infinite Ground
+  // 无尽地面
   private groundSegments: THREE.Group[] = [];
   
-  // Snow Particles
+  // 雪花粒子
   private snowSystem: THREE.Points | null = null;
   private snowVelocities: Float32Array | null = null;
 
@@ -56,7 +57,6 @@ export class GameScene {
     this.container = container;
     this.clock = new THREE.Clock();
 
-    // 1. Setup Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -64,46 +64,32 @@ export class GameScene {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
-    // 2. Setup Scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(COLOR_SKY);
     this.scene.fog = new THREE.Fog(COLOR_FOG, 15, 60);
 
-    // 3. Setup Camera
     this.camera = new THREE.PerspectiveCamera(CAMERA_FOV, container.clientWidth / container.clientHeight, 0.1, 100);
     
-    // 4. Setup Lights
     this.setupLights();
-
-    // 5. Setup Infinite World
     this.buildInfiniteWorld();
-    
-    // 6. Setup Snow
     this.createSnow();
 
-    // 7. Setup Player
     this.player = new Player();
     this.scene.add(this.player.mesh);
 
-    // 8. Setup Managers
     this.poolManager = new PoolManager(this.scene);
     this.sceneryManager = new SceneryManager(this.scene);
     this.audioManager = new AudioManager();
 
-    // 9. Setup Inputs
     this.inputManager = new InputManager((dir) => this.handleInput(dir));
     this.inputManager.enable();
 
-    // 10. Listeners
     window.addEventListener('resize', this.onResize);
     window.addEventListener('game-start', this.startGame);
     window.addEventListener('game-restart', this.restartGame);
     window.addEventListener('game-return-menu', this.returnToMenu);
 
-    // 11. Enter Menu State
     this.enterMenu();
-
-    // 12. Start Loop
     this.animate();
   }
 
@@ -174,8 +160,6 @@ export class GameScene {
     this.player.mesh.position.set(0,0,0);
   }
 
-  private isGameOver = false;
-
   private setupLights() {
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     hemiLight.position.set(0, 20, 0);
@@ -186,13 +170,6 @@ export class GameScene {
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 150;
-    const d = 30;
-    dirLight.shadow.camera.left = -d;
-    dirLight.shadow.camera.right = d;
-    dirLight.shadow.camera.top = d;
-    dirLight.shadow.camera.bottom = -d;
     this.scene.add(dirLight);
   }
 
@@ -208,16 +185,19 @@ export class GameScene {
       track.rotation.x = -Math.PI / 2;
       track.receiveShadow = true;
       segment.add(track);
+      
       const leftSnow = new THREE.Mesh(snowGeo, snowMat);
       leftSnow.rotation.x = -Math.PI / 2;
       leftSnow.position.x = -(LANE_WIDTH * 1.5 + 15);
       leftSnow.receiveShadow = true;
       segment.add(leftSnow);
+      
       const rightSnow = new THREE.Mesh(snowGeo, snowMat);
       rightSnow.rotation.x = -Math.PI / 2;
       rightSnow.position.x = (LANE_WIDTH * 1.5 + 15);
       rightSnow.receiveShadow = true;
       segment.add(rightSnow);
+      
       segment.position.z = -i * GROUND_SEGMENT_LENGTH;
       this.groundSegments.push(segment);
       this.scene.add(segment);
@@ -263,8 +243,7 @@ export class GameScene {
   }
 
   private handleInput(direction: 'left' | 'right' | 'up' | 'down') {
-    if (this.gameState !== 'PLAYING') return;
-    if (this.isGameOver) return;
+    if (this.gameState !== 'PLAYING' || this.isGameOver) return;
 
     this.audioManager.resume();
     switch(direction) {
@@ -293,11 +272,10 @@ export class GameScene {
       this.spawnTimer = 0;
       this.poolManager.spawnObstacle(-SPAWN_DISTANCE);
     }
-    const oldScore = this.score;
+    
     const result = this.poolManager.update(dt, this.gameSpeed, this.player.mesh.children[0]);
     if (result.scoreDelta > 0) {
       this.addScore(result.scoreDelta);
-      // If score increase is large (multiple of 50), it's likely a coin
       if (result.scoreDelta >= 50) this.audioManager.playCoin();
     }
     if (result.gameOver) this.setGameOver();
@@ -336,13 +314,10 @@ export class GameScene {
 
     if (this.gameState === 'MENU') {
       const time = Date.now() * 0.0005;
-      const radius = 5;
-      this.camera.position.x = Math.sin(time) * radius;
-      this.camera.position.z = Math.cos(time) * radius + 1;
+      this.camera.position.x = Math.sin(time) * 5;
+      this.camera.position.z = Math.cos(time) * 5 + 1;
       this.camera.position.y = 2.5;
       this.camera.lookAt(0, 1, 0);
-      this.updateSnow(dt);
-    } else if (this.gameState === 'TRANSITION') {
       this.updateSnow(dt);
     } else if (this.gameState === 'PLAYING') {
       this.player.update(dt);
@@ -350,12 +325,13 @@ export class GameScene {
       this.updateSnow(dt);
       this.updateCameraPlaying();
       if (this.gameSpeed < GAME_SPEED_MAX) this.gameSpeed += 0.3 * dt; 
+    } else {
+      this.updateSnow(dt);
     }
     this.renderer.render(this.scene, this.camera);
   };
 
   private onResize = () => {
-    if (!this.container) return;
     const width = this.container.clientWidth;
     const height = this.container.clientHeight;
     this.camera.aspect = width / height;
@@ -372,8 +348,5 @@ export class GameScene {
     this.inputManager.disable();
     this.audioManager.stopBGM();
     this.renderer.dispose();
-    if (this.container.contains(this.renderer.domElement)) {
-      this.container.removeChild(this.renderer.domElement);
-    }
   }
 }
