@@ -17,6 +17,22 @@ const matGold = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8
 const matRed = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 });
 const matBlack = new THREE.MeshStandardMaterial({ color: 0x111111 });
 
+// 新增：高亮自发光红材质，解决宫灯看不清的问题
+const matLanternGlow = new THREE.MeshStandardMaterial({
+  color: 0xff5555,        // 基础色提亮
+  emissive: 0xff0000,     // 强烈的红光
+  emissiveIntensity: 2.0, // 发光强度
+  toneMapped: false       // 突破亮度限制
+});
+
+// 新增：地面光斑材质
+const matLightSpot = new THREE.MeshBasicMaterial({
+  color: 0xffaa00,        // 暖橙黄色
+  transparent: true,
+  opacity: 0.3,           // 半透明
+  depthWrite: false       // 避免遮挡地面
+});
+
 // OPTIMIZED: Glow material that preserves shape and shading
 const matCoinGlow = new THREE.MeshStandardMaterial({ 
   color: 0xb45309,        // Deep gold base
@@ -142,15 +158,23 @@ export class PoolManager {
 
   private createLanternLine(): THREE.Group {
     const root = new THREE.Group();
+    // 绳子
     const string = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH + 0.4, 0.05, 0.05), matBlack);
     string.position.y = 2.0;
     root.add(string);
 
+    // 地面光斑几何体 (公用)
+    const spotGeo = new THREE.CircleGeometry(0.6, 16);
+
     const createLantern = (x: number) => {
       const lGroup = new THREE.Group();
       lGroup.position.set(x, 1.6, 0);
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8), matRed);
+
+      // 灯笼主体：使用高亮自发光材质
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8), matLanternGlow);
       lGroup.add(body);
+
+      // 灯笼盖子
       const capGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.1, 8);
       const capTop = new THREE.Mesh(capGeo, matGold);
       capTop.position.y = 0.3;
@@ -158,9 +182,18 @@ export class PoolManager {
       const capBot = new THREE.Mesh(capGeo, matGold);
       capBot.position.y = -0.3;
       lGroup.add(capBot);
+
+      // 流苏
       const tassel = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05), matRed);
       tassel.position.y = -0.6;
       lGroup.add(tassel);
+
+      // 添加地面光斑投影：帮助定位
+      const spot = new THREE.Mesh(spotGeo, matLightSpot);
+      spot.rotation.x = -Math.PI / 2;
+      spot.position.set(0, -1.58, 0); // 1.6 (灯笼高度) - 1.58 = 0.02 (稍微离地)
+      lGroup.add(spot);
+
       return lGroup;
     };
 
